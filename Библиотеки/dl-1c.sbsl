@@ -1,43 +1,160 @@
-/*
-MIT License
-
-Copyright (c) 2020 Dmitry Klimenko
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+// MIT License
+//
+// Copyright (c) 2020 Dmitry Klimenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const URL_RELEASE  ="https://releases.1c.ru"
 const URL_LOGIN    ="https://login.1c.ru"
 const URL_DOWNLOAD ="%URL_RELEASE/version_file"
 
 exception ExceptionDL1C;
+
+method updateCookies(cookies: Map, host: String, setCookie: String|Undefined)
+
+    if setCookie is Undefined
+        return;
+
+    val thisCookies = new Map()
+
+    for cookie in setCookie.Split(";")
+        val pair = cookie.Split("=")
+        val key = pair[0].Trim()
+        if key == "Path" or key == "Expires" or pair.Size() == 1 // don't worry
+            continue;
+        val value = pair.Size() == 1 ? "" : pair[1].Trim()
+        thisCookies.Insert(key, value)
+    ;
+
+    var realHost = thisCookies.ContainsKey("Domain") ? thisCookies.Get("Domain") : host
+    if not realHost.StartsWith(".")
+        realHost = "." + realHost
+    ;
+
+    val hostCookies = cookies.ContainsKey(realHost) ? cookies.Get(realHost) : new Map()
+    if not cookies.ContainsKey(realHost)
+        cookies.Insert(realHost, hostCookies)
+    ;
+
+    for item in thisCookies
+        if item.Key == "Domain"
+            continue;
+        hostCookies.Insert(item.Key, item.Value)
+    ;
+
+;
+
+method getCookie(cookies: Map, host: String): String
     
+    var result = ""
+
+    val realHost = "." + host
+
+    for hostItem in cookies
+        if not realHost.EndsWith(hostItem.Key)
+            continue;
+        
+        for cookie in hostItem.Value
+            result = result + "; " + cookie.Key + (cookie.Value.IsEmpty() ? "" : "=" + cookie.Value)
+        ;
+    ;
+
+    return result.IsEmpty() ? result : result.Substring(2)
+;
+
+method getHost(url: String): String
+
+    var result = ""
+
+    if url.StartsWith("http://")
+        result = url.Substring("http://".Length())
+    else if url.StartsWith("https://")
+        result = url.Substring("https://".Length())
+    else
+        throw new ExceptionDL1C("Bad URL: %url")
+    ;
+
+    if result.Contains("/")
+        result = result.SubstringFromBegin(result.Find("/"))
+    ;
+
+    return result
+;
+
+method baseUrl(url: String): String
+
+    var result = ""
+
+    if url.StartsWith("http://")
+        result = "http://"
+    else if url.StartsWith("https://")
+        result = "https://"
+    else
+        throw new ExceptionDL1C("Bad URL: %url")
+    ;
+
+    return result + getHost(url)
+;
+
 method extract(text: String, startPattern: String, endPattern: String): String
     val start = text.Find(startPattern)
     val end = text.Find(endPattern, start + startPattern.Length())
     return text.Substring(start + startPattern.Length(), end)
 ;
 
-method auth(username: String, password: String): String
+method exploreWeb(request: HttpRequest, cookies: Map): HttpResponse
 
-    use response1 = HttpClient.GetRequest(URL_RELEASE).Execute() 
-    val cookies1 = response1.Headers.GetFirst("Set-Cookie")
+    val requests = [request]
+    val responses = [request.Execute()]
+    updateCookies(cookies, getHost(request.AbsoluteUrl), responses.Last().Headers.GetFirst("Set-Cookie"))
+    
+    while responses.Last().StatusCode == 302
+        var location = responses.Last().Headers.GetFirst("Location") as String
+        if location.StartsWith("/")
+            location = baseUrl(requests.Last().AbsoluteUrl) + location
+        ;
+        requests.Add(
+            HttpClient.GetRequest(location)
+                .SetCookies(getCookie(cookies, getHost(location)))
+                .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
+        )
+        responses.Add(
+            requests.Last()
+                .Execute()
+        )
+        updateCookies(cookies, getHost(location), responses.Last().Headers.GetFirst("Set-Cookie"))
+    ;
+
+    for i = 0 to responses.Bound() - 1
+        responses[i].Close()
+    ;
+
+    return responses.Last()
+;
+
+method auth(username: String, password: String): Map
+
+    val cookies = new Map()
+    use response1 = HttpClient.GetRequest(URL_RELEASE).Execute()
+    updateCookies(cookies, getHost(URL_RELEASE), response1.Headers.GetFirst("Set-Cookie")) 
     val src = response1.Body.ReadAsText()
     response1.Close()
 
@@ -54,66 +171,79 @@ method auth(username: String, password: String): String
         + "&" + "geolocation="
         + "&" + "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
 
-    use response2 = HttpClient.PostRequest(URL_LOGIN + action)
+    val request = HttpClient.PostRequest(URL_LOGIN + action)
         .SetContentType("application/x-www-form-urlencoded")
-        .SetCookies(cookies1)
+        .SetCookies(getCookie(cookies, getHost(URL_LOGIN)))
         .SetBody(body)
-        .Execute()
+        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
+
+    exploreWeb(request, cookies).Close()            
     
-    val cookies2 = response2.Headers.GetFirst("Set-Cookie")
-    response2.Close()
-    
-    if not (cookies2 is String and cookies2.Find("TGC=") > -1)
+    if not cookies.Get("." + getHost(URL_LOGIN)).ContainsKey("TGC")
        throw new ExceptionDL1C("Auth failed")
     ;
 
-    return cookies2
+    return cookies
 ;
 
-method download(cookies: String, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
+method download(cookies: Map, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
 
-    val url = URL_DOWNLOAD 
+    val url1 = URL_DOWNLOAD 
         + "?" + "nick=" + nick
         + "&" + "ver="  + ver
-        + "&" + "path=" + path_folder + "\\" + path_version + "\\" + path_filename
+        + "&" + "path=" + path_folder + "\%5C" + path_version + "\%5C" + path_filename  // https://github.com/klimenko-1c/dl-1c/issues/2 
+
+    val request1 = HttpClient.GetRequest(url1)
+        .SetCookies(getCookie(cookies, getHost(url1)))
+        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1            
+    
+    use response1 = exploreWeb(request1, cookies)
+
+    val src = response1.Body.ReadAsText()
+    response1.Close()
+
+    val end = src.Find(">Скачать дистрибутив<")
+    val start = src.FindFromEnd("\"",, end - 1)
+    val url2 = src.Substring(start + 1, end - 1)
+
+    val request2 = HttpClient.GetRequest(url2)
+        .SetCookies(getCookie(cookies, getHost(url2)))
+        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1            
+   
+    use response2 = exploreWeb(request2, cookies)
 
     use write = new File(path_filename).OpenWritableStream()
-
-    use response = HttpClient.GetRequest(url)
-        .SetCookies(cookies)
-        .Execute()
-
-    response.Body.CopyTo(write)
+    response2.Body.CopyTo(write)
 
     write.Close()
-    response.Close()
+    response2.Close()
 ;
 
-method downloadPlatform(cookies: String, version: String, prefix: String, postfix: String, extension: String)
+method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String)
     
     val path_folder = "Platform"
     val path_version = version.Replace(".", "_")
-    val path_filename = path_folder + "_" + path_version + (postfix.IsEmpty() ? "" :  "." + postfix) + "." + extension
+    val path_filename = prefix + "_" + path_version + "." + extension
 
     val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
 
     download(cookies, nick, version, path_folder, path_version, path_filename)
 ;
 
-method downloadPostgres(cookies: String, version: String, postfix: String, extension: String)
+method downloadPostgres(cookies: Map, version: String, postfix: String, extension: String)
 
-    val prefix = "postgreslq"
+    val prefix = "postgresql"
 
     val path_folder = "AddCompPostgre"
     val path_version = version.Replace(".", "_").Replace("-", "_")
-    val path_filename = prefix + "_" + version.Replace("-", "_") + postfix + "." + extension
+    val path_filename = prefix + "_" + version.Replace("-", "_") + "_" + postfix + "." + extension
 
     val nick = path_folder
 
     download(cookies, nick, version, path_folder, path_version, path_filename)
 ;
 
-method downloadConfiguration(cookies: String, version: String, target: String, isUpdate: Boolean)
+method downloadConfiguration(cookies: Map, version: String, target: String, isUpdate: Boolean)
 
     val postfix = isUpdate ? "updsetup" : "setup1c" 
     
@@ -131,30 +261,28 @@ method main(username: String, password: String, target: String, version: String)
     val cookies = auth(username, password)
     
     if target.StartsWith("config-") or target.StartsWith("update-")
-        downloadConfiguration(cookies, version, target.Substring(8), target.StartsWith("update-"))
+        downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
     else
 
         case target
         when "platform-win64"
-            downloadPlatform(cookies, version, "windows64full", "", "rar")
+            downloadPlatform(cookies, version, "windows64full", "rar")
         when "platform-win32"
-            downloadPlatform(cookies, version, "windows", "", "rar")
+            downloadPlatform(cookies, version, "windows", "rar")
+        when "platform-osx"
+            downloadPlatform(cookies, version, "clientosx", "dmg")
         when "server-win64"
-            downloadPlatform(cookies, version, "windows64", "", "rar")
+            downloadPlatform(cookies, version, "windows64", "rar")
         when "server-deb64"
-            downloadPlatform(cookies, version, "deb64", "", "tar.gz")
+            downloadPlatform(cookies, version, "deb64", "tar.gz")
         when "thinclient-win64"
-            downloadPlatform(cookies, version, "setuptc64", "", "tar.gz")
+            downloadPlatform(cookies, version, "setuptc64", "tar.gz")
         when "thinclient-win32"
-            downloadPlatform(cookies, version, "setuptc", "", "tar.gz")
+            downloadPlatform(cookies, version, "setuptc", "tar.gz")
         when "postgres-win"
             downloadPostgres(cookies, version, "x64", "zip")
         when "postgres-deb"
             downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
-        when "platform-osx"
-            downloadPlatform(cookies, version, "clientosx", "", "dmg")
-        when "thinclient-osx"
-            downloadPlatform(cookies, version, "thin.osx", "", "dmg")
         else
             throw new ExceptionDL1C("Bad target")
         ;
@@ -170,5 +298,4 @@ method Script(username: String, password: String, target: String, version: Strin
         Console.WriteError(exception.Info())
         return 1
     ;
-
 ;
