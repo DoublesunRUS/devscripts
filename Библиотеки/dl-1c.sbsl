@@ -1,0 +1,174 @@
+/*
+MIT License
+
+Copyright (c) 2020 Dmitry Klimenko
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+const URL_RELEASE  ="https://releases.1c.ru"
+const URL_LOGIN    ="https://login.1c.ru"
+const URL_DOWNLOAD ="%URL_RELEASE/version_file"
+
+exception ExceptionDL1C;
+    
+method extract(text: String, startPattern: String, endPattern: String): String
+    val start = text.Find(startPattern)
+    val end = text.Find(endPattern, start + startPattern.Length())
+    return text.Substring(start + startPattern.Length(), end)
+;
+
+method auth(username: String, password: String): String
+
+    use response1 = HttpClient.GetRequest(URL_RELEASE).Execute() 
+    val cookies1 = response1.Headers.GetFirst("Set-Cookie")
+    val src = response1.Body.ReadAsText()
+    response1.Close()
+
+    val action = extract(src, "form method=\"post\" id=\"loginForm\" action=\"", "\"")
+    val execution =  extract(src, "input type=\"hidden\" name=\"execution\" value=\"", "\"")
+
+    val body =  "inviteCode="
+        + "&" + "inviteType="
+        + "&" + "username=%username"
+        + "&" + "password=%password"
+        + "&" + "rememberMe=on"
+        + "&" + "execution=" + execution.Replace("=", "\%3D") 
+        + "&" + "_eventId=submit"
+        + "&" + "geolocation="
+        + "&" + "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
+
+    use response2 = HttpClient.PostRequest(URL_LOGIN + action)
+        .SetContentType("application/x-www-form-urlencoded")
+        .SetCookies(cookies1)
+        .SetBody(body)
+        .Execute()
+    
+    val cookies2 = response2.Headers.GetFirst("Set-Cookie")
+    response2.Close()
+    
+    if not (cookies2 is String and cookies2.Find("TGC=") > -1)
+       throw new ExceptionDL1C("Auth failed")
+    ;
+
+    return cookies2
+;
+
+method download(cookies: String, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
+
+    val url = URL_DOWNLOAD 
+        + "?" + "nick=" + nick
+        + "&" + "ver="  + ver
+        + "&" + "path=" + path_folder + "\\" + path_version + "\\" + path_filename
+
+    use write = new File(path_filename).OpenWritableStream()
+
+    use response = HttpClient.GetRequest(url)
+        .SetCookies(cookies)
+        .Execute()
+
+    response.Body.CopyTo(write)
+
+    write.Close()
+    response.Close()
+;
+
+method downloadPlatform(cookies: String, version: String, prefix: String, postfix: String, extension: String)
+    
+    val path_folder = "Platform"
+    val path_version = version.Replace(".", "_")
+    val path_filename = path_folder + "_" + path_version + (postfix.IsEmpty() ? "" :  "." + postfix) + "." + extension
+
+    val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method downloadPostgres(cookies: String, version: String, postfix: String, extension: String)
+
+    val prefix = "postgreslq"
+
+    val path_folder = "AddCompPostgre"
+    val path_version = version.Replace(".", "_").Replace("-", "_")
+    val path_filename = prefix + "_" + version.Replace("-", "_") + postfix + "." + extension
+
+    val nick = path_folder
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method downloadConfiguration(cookies: String, version: String, target: String, isUpdate: Boolean)
+
+    val postfix = isUpdate ? "updsetup" : "setup1c" 
+    
+    val path_folder = target
+    val path_version = version.Replace(".", "_")
+    val path_filename = path_folder + "_" + path_version + "_" + postfix + ".exe"
+
+    val nick = path_folder
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method main(username: String, password: String, target: String, version: String)
+
+    val cookies = auth(username, password)
+    
+    if target.StartsWith("config-") or target.StartsWith("update-")
+        downloadConfiguration(cookies, version, target.Substring(8), target.StartsWith("update-"))
+    else
+
+        case target
+        when "platform-win64"
+            downloadPlatform(cookies, version, "windows64full", "", "rar")
+        when "platform-win32"
+            downloadPlatform(cookies, version, "windows", "", "rar")
+        when "server-win64"
+            downloadPlatform(cookies, version, "windows64", "", "rar")
+        when "server-deb64"
+            downloadPlatform(cookies, version, "deb64", "", "tar.gz")
+        when "thinclient-win64"
+            downloadPlatform(cookies, version, "setuptc64", "", "tar.gz")
+        when "thinclient-win32"
+            downloadPlatform(cookies, version, "setuptc", "", "tar.gz")
+        when "postgres-win"
+            downloadPostgres(cookies, version, "x64", "zip")
+        when "postgres-deb"
+            downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
+        when "platform-osx"
+            downloadPlatform(cookies, version, "clientosx", "", "dmg")
+        when "thinclient-osx"
+            downloadPlatform(cookies, version, "thin.osx", "", "dmg")
+        else
+            throw new ExceptionDL1C("Bad target")
+        ;
+    ;
+;
+
+method Script(username: String, password: String, target: String, version: String): Number
+
+    try 
+        main(username, password, target, version)
+        return 0
+    catch exception: any
+        Console.WriteError(exception.Info())
+        return 1
+    ;
+
+;
