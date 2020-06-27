@@ -12,61 +12,363 @@
  ******************************************************************************/
 
 конст URL_ПЛАТФОРМЫ = "https://releases.1c.ru/project/Platform83"
-конст URL_СЕРВЕРА_АВТОРИЗАЦИИ = "https://login.1c.ru"
 
 
-метод ВсеРелизы(имяПользователя: Строка, парольПользователя: Строка)
-    знч аутентификация = Авторизация(имяПользователя, парольПользователя)
-
-    знч запрос = КлиентHttp.ЗапросGet(URL_ПЛАТФОРМЫ)
-
-    исп ответ = запрос.УстановитьCookies(аутентификация).Выполнить()
-
-    знч текстСтраницы = ответ.Тело.ПрочитатьКакТекст()
+метод ВсеРелизы(имяПользователя: Строка, парольПользователя: Строка): Множество
+    пер списокВерсий: Множество
+    
+    знч свойстваАутентификации = auth(имяПользователя, парольПользователя)
+    
+    знч текстСтраницы = webBodyAsText(URL_ПЛАТФОРМЫ, свойстваАутентификации)
 
     знч списокСтрок = текстСтраницы.ПолучитьСтроки()
+    для строкаТела из списокСтрок
+        если не строкаТела.Сократить().НачинаетсяС("<a href=\"/version_files?nick=Platform83&ver=")
+            продолжить
+        ;
+        
+        знч строкаВерсии = строкаТела.Сократить().Заменить("<a href=\"/version_files?nick=Platform83&ver=", "").Заменить("\">", "")
+        
+        списокВерсий.Добавить(строкаВерсии)
+    ;
+    
+    возврат списокВерсий
 ;
 
-метод ПоследниеРелизы(имяПользователя: Строка, парольПользователя: Строка)
-    знч последниеВерсииПлатформы = ["8.3.10.2772", "8.3.11.3133", "8.3.12.1924", "8.3.13.1926", "8.3.14.2095",
-        "8.3.15.1985", "8.3.16.1502", "8.3.17.1496"]
+метод ПоследниеРелизы(имяПользователя: Строка, парольПользователя: Строка): Множество
+    знч всеРелизы = ВсеРелизы(имяПользователя, парольПользователя)
+    
+    пер соответствиеРелизов: Соответствие
+    
+    для релиз из всеРелизы
+        знч разложенныйТекущийРелиз = релиз.Разделить(".")
+        
+        если не соответствиеРелизов.СодержитКлюч(разложенныйТекущийРелиз[2])
+            соответствиеРелизов.Вставить(разложенныйТекущийРелиз[2], релиз)
+            продолжить
+        ;
+        
+        знч последнийРелиз = соответствиеРелизов.Получить(разложенныйТекущийРелиз[2])
+        знч разложенныйПоследнийРелиз = последнийРелиз.Разделить(".")
+        
+        если разложенныйТекущийРелиз[3] > разложенныйПоследнийРелиз[3]
+            соответствиеРелизов.Вставить(разложенныйТекущийРелиз[2], релиз)
+        ;
+    ;
+    
+    пер последниеВерсииПлатформы: Множество
+    
+    для релиз из соответствиеРелизов
+        последниеВерсииПлатформы.Добавить(релиз.Значение)
+    ;
 
-    для версияПлатформы из последниеВерсииПлатформы
-        Консоль.Записать(версияПлатформы)
+    возврат последниеВерсииПлатформы
+;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+// MIT License
+//
+// Copyright (c) 2020 Dmitry Klimenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const URL_RELEASE  ="https://releases.1c.ru"
+const URL_LOGIN    ="https://login.1c.ru"
+const URL_DOWNLOAD ="%URL_RELEASE/version_file"
+
+exception ExceptionDL1C;
+
+method updateCookies(cookies: Map, host: String, setCookie: String|Undefined)
+
+    if setCookie is Undefined
+        return;
+
+    val thisCookies = new Map()
+
+    for cookie in setCookie.Split(";")
+        val pair = cookie.Split("=")
+        val key = pair[0].Trim()
+        if key == "Path" or key == "Expires" or pair.Size() == 1 // don't worry
+            continue;
+        val value = pair.Size() == 1 ? "" : pair[1].Trim()
+        thisCookies.Insert(key, value)
+    ;
+
+    var realHost = thisCookies.ContainsKey("Domain") ? thisCookies.Get("Domain") : host
+    if not realHost.StartsWith(".")
+        realHost = "." + realHost
+    ;
+
+    val hostCookies = cookies.ContainsKey(realHost) ? cookies.Get(realHost) : new Map()
+    if not cookies.ContainsKey(realHost)
+        cookies.Insert(realHost, hostCookies)
+    ;
+
+    for item in thisCookies
+        if item.Key == "Domain"
+            continue;
+        hostCookies.Insert(item.Key, item.Value)
+    ;
+
+;
+
+method getCookie(cookies: Map, host: String): String
+    
+    var result = ""
+
+    val realHost = "." + host
+
+    for hostItem in cookies
+        if not realHost.EndsWith(hostItem.Key)
+            continue;
+        
+        for cookie in hostItem.Value
+            result = result + "; " + cookie.Key + (cookie.Value.IsEmpty() ? "" : "=" + cookie.Value)
+        ;
+    ;
+
+    return result.IsEmpty() ? result : result.Substring(2)
+;
+
+method getHost(url: String): String
+
+    var result = ""
+
+    if url.StartsWith("http://")
+        result = url.Substring("http://".Length())
+    else if url.StartsWith("https://")
+        result = url.Substring("https://".Length())
+    else
+        throw new ExceptionDL1C("Bad URL: %url")
+    ;
+
+    if result.Contains("/")
+        result = result.SubstringFromBegin(result.Find("/"))
+    ;
+
+    return result
+;
+
+method baseUrl(url: String): String
+
+    var result = ""
+
+    if url.StartsWith("http://")
+        result = "http://"
+    else if url.StartsWith("https://")
+        result = "https://"
+    else
+        throw new ExceptionDL1C("Bad URL: %url")
+    ;
+
+    return result + getHost(url)
+;
+
+method extract(text: String, startPattern: String, endPattern: String): String
+    val start = text.Find(startPattern)
+    val end = text.Find(endPattern, start + startPattern.Length())
+    return text.Substring(start + startPattern.Length(), end)
+;
+
+method exploreWeb(request: HttpRequest, cookies: Map): HttpResponse
+
+    val requests = [request]
+    val responses = [request.Execute()]
+    updateCookies(cookies, getHost(request.AbsoluteUrl), responses.Last().Headers.GetFirst("Set-Cookie"))
+    
+    while responses.Last().StatusCode == 302
+        var location = responses.Last().Headers.GetFirst("Location") as String
+        if location.StartsWith("/")
+            location = baseUrl(requests.Last().AbsoluteUrl) + location
+        ;
+        requests.Add(
+            HttpClient.GetRequest(location)
+                .SetCookies(getCookie(cookies, getHost(location)))
+                .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
+        )
+        responses.Add(
+            requests.Last()
+                .Execute()
+        )
+        updateCookies(cookies, getHost(location), responses.Last().Headers.GetFirst("Set-Cookie"))
+    ;
+
+    for i = 0 to responses.Bound() - 1
+        responses[i].Close()
+    ;
+
+    return responses.Last()
+;
+
+method auth(username: String, password: String): Map
+
+    val cookies = new Map()
+    use response1 = HttpClient.GetRequest(URL_RELEASE).Execute()
+    updateCookies(cookies, getHost(URL_RELEASE), response1.Headers.GetFirst("Set-Cookie")) 
+    val src = response1.Body.ReadAsText()
+    response1.Close()
+
+    val action = extract(src, "form method=\"post\" id=\"loginForm\" action=\"", "\"")
+    val execution =  extract(src, "input type=\"hidden\" name=\"execution\" value=\"", "\"")
+
+    val body =  "inviteCode="
+        + "&" + "inviteType="
+        + "&" + "username=%username"
+        + "&" + "password=%password"
+        + "&" + "rememberMe=on"
+        + "&" + "execution=" + execution.Replace("=", "\%3D") 
+        + "&" + "_eventId=submit"
+        + "&" + "geolocation="
+        + "&" + "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
+
+    val request = HttpClient.PostRequest(URL_LOGIN + action)
+        .SetContentType("application/x-www-form-urlencoded")
+        .SetCookies(getCookie(cookies, getHost(URL_LOGIN)))
+        .SetBody(body)
+        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
+
+    exploreWeb(request, cookies).Close()            
+    
+    if not cookies.Get("." + getHost(URL_LOGIN)).ContainsKey("TGC")
+       throw new ExceptionDL1C("Auth failed")
+    ;
+
+    return cookies
+;
+
+method webBodyAsText(url: String, cookies: Map): String
+    val request = HttpClient.GetRequest(url)
+        .SetCookies(getCookie(cookies, getHost(url)))
+        .SetMaxRedirect(0)
+    
+    use response = exploreWeb(request, cookies)
+    
+    return response.Body.ReadAsText()
+;
+
+method webBodyToFile(url: String, cookies: Map, filename: String)
+    val request = HttpClient.GetRequest(url)
+        .SetCookies(getCookie(cookies, getHost(url)))
+        .SetMaxRedirect(0)
+    
+    use response = exploreWeb(request, cookies)
+    
+    use write = new File(filename).OpenWritableStream()
+    response.Body.CopyTo(write)
+;
+
+method download(cookies: Map, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
+
+    val url1 = URL_DOWNLOAD 
+        + "?" + "nick=" + nick
+        + "&" + "ver="  + ver
+        + "&" + "path=" + path_folder + "\%5C" + path_version + "\%5C" + path_filename  // https://github.com/klimenko-1c/dl-1c/issues/2 
+
+    val src = webBodyAsText(url1, cookies)
+
+    val end = src.Find(">Скачать дистрибутив<")
+    val start = src.FindFromEnd("\"",, end - 1)
+    val url2 = src.Substring(start + 1, end - 1)
+
+    webBodyToFile(url2, cookies, path_filename)
+;
+
+method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String)
+    
+    val path_folder = "Platform"
+    val path_version = version.Replace(".", "_")
+    val path_filename = prefix + "_" + path_version + "." + extension
+
+    val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method downloadPostgres(cookies: Map, version: String, postfix: String, extension: String)
+
+    val prefix = "postgresql"
+
+    val path_folder = "AddCompPostgre"
+    val path_version = version.Replace(".", "_").Replace("-", "_")
+    val path_filename = prefix + "_" + version.Replace("-", "_") + "_" + postfix + "." + extension
+
+    val nick = path_folder
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method downloadConfiguration(cookies: Map, version: String, target: String, isUpdate: Boolean)
+
+    val postfix = isUpdate ? "updsetup" : "setup1c" 
+    
+    val path_folder = target
+    val path_version = version.Replace(".", "_")
+    val path_filename = path_folder + "_" + path_version + "_" + postfix + ".exe"
+
+    val nick = path_folder
+
+    download(cookies, nick, version, path_folder, path_version, path_filename)
+;
+
+method main(username: String, password: String, target: String, version: String)
+
+    val cookies = auth(username, password)
+    
+    if target.StartsWith("config-") or target.StartsWith("update-")
+        downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
+    else
+
+        case target
+        when "platform-win64"
+            downloadPlatform(cookies, version, "windows64full", "rar")
+        when "platform-win32"
+            downloadPlatform(cookies, version, "windows", "rar")
+        when "platform-osx"
+            downloadPlatform(cookies, version, "clientosx", "dmg")
+        when "server-win64"
+            downloadPlatform(cookies, version, "windows64", "rar")
+        when "server-deb64"
+            downloadPlatform(cookies, version, "deb64", "tar.gz")
+        when "thinclient-win64"
+            downloadPlatform(cookies, version, "setuptc64", "tar.gz")
+        when "thinclient-win32"
+            downloadPlatform(cookies, version, "setuptc", "tar.gz")
+        when "thinclient-osx"
+            downloadPlatform(cookies, version, "thin.osx", "dmg")
+        when "postgres-win"
+            downloadPostgres(cookies, version, "x64", "zip")
+        when "postgres-deb"
+            downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
+        else
+            throw new ExceptionDL1C("Bad target")
+        ;
     ;
 ;
 
-метод ИзвлечьТекстПоШаблонам(текст: Строка, шаблонНачала: Строка, шаблонОкончания: Строка): Строка
-    знч начало = текст.Найти(шаблонНачала)
-    знч окончание = текст.Найти(шаблонОкончания, начало + шаблонНачала.Длина())
-    возврат текст.Подстрока(начало + шаблонНачала.Длина(), окончание)
-;
+method Script(username: String, password: String, target: String, version: String): Number
 
-метод Авторизация(имяПользователя: Строка, парольПользователя: Строка): Строка
-    исп ответ1 = КлиентHttp.ЗапросGet(URL_ПЛАТФОРМЫ).Выполнить()
-    знч куки1 = ответ1.Заголовки.ПолучитьПервый("Set-Cookie")
-    знч телоЛогина = ответ1.Тело.ПрочитатьКакТекст()
-    ответ1.Закрыть()
-
-    знч action = ИзвлечьТекстПоШаблонам(телоЛогина, "form method=\"post\" id=\"loginForm\" action=\"", "\"")
-    знч execution = ИзвлечьТекстПоШаблонам(телоЛогина, "input type=\"hidden\" name=\"execution\" value=\"", "\"")
-
-    знч телоАвторизации = "inviteCode=" + "&" + "inviteType=" + "&" + "username=%имяПользователя" + "&" + "password=%парольПользователя"
-        + "&" + "rememberMe=on" + "&" + "execution=" + execution.Заменить("=", "\%3D") + "&" + "_eventId=submit" + "&"
-        + "geolocation=" + "&" + "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
-
-    исп ответ2 = КлиентHttp.ЗапросPost(URL_СЕРВЕРА_АВТОРИЗАЦИИ + action)
-    .УстановитьТипСодержимого("application/x-www-form-urlencoded")
-    .УстановитьCookies(куки1)
-    .УстановитьТело(телоАвторизации)
-    .Выполнить()
-
-    знч куки2 = ответ2.Заголовки.ПолучитьПервый("Set-Cookie")
-    ответ2.Закрыть()
-
-    если не (куки2 это Строка и куки2.Найти("TGC=") > -1)
-        выбросить новый ИсключениеНедопустимоеСостояние("Авторизация не удалась")
+    try 
+        main(username, password, target, version)
+        return 0
+    catch exception: any
+        Console.WriteError(exception.Info())
+        return 1
     ;
-
-    возврат куки2
 ;

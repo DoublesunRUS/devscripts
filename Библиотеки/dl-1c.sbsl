@@ -186,6 +186,27 @@ method auth(username: String, password: String): Map
     return cookies
 ;
 
+method webBodyAsText(url: String, cookies: Map): String
+    val request = HttpClient.GetRequest(url)
+        .SetCookies(getCookie(cookies, getHost(url)))
+        .SetMaxRedirect(0)
+    
+    use response = exploreWeb(request, cookies)
+    
+    return response.Body.ReadAsText()
+;
+
+method webBodyToFile(url: String, cookies: Map, filename: String)
+    val request = HttpClient.GetRequest(url)
+        .SetCookies(getCookie(cookies, getHost(url)))
+        .SetMaxRedirect(0)
+    
+    use response = exploreWeb(request, cookies)
+    
+    use write = new File(filename).OpenWritableStream()
+    response.Body.CopyTo(write)
+;
+
 method download(cookies: Map, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
 
     val url1 = URL_DOWNLOAD 
@@ -193,30 +214,13 @@ method download(cookies: Map, nick: String, ver: String, path_folder: String, pa
         + "&" + "ver="  + ver
         + "&" + "path=" + path_folder + "\%5C" + path_version + "\%5C" + path_filename  // https://github.com/klimenko-1c/dl-1c/issues/2 
 
-    val request1 = HttpClient.GetRequest(url1)
-        .SetCookies(getCookie(cookies, getHost(url1)))
-        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1            
-    
-    use response1 = exploreWeb(request1, cookies)
-
-    val src = response1.Body.ReadAsText()
-    response1.Close()
+    val src = webBodyAsText(url1, cookies)
 
     val end = src.Find(">Скачать дистрибутив<")
     val start = src.FindFromEnd("\"",, end - 1)
     val url2 = src.Substring(start + 1, end - 1)
 
-    val request2 = HttpClient.GetRequest(url2)
-        .SetCookies(getCookie(cookies, getHost(url2)))
-        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1            
-   
-    use response2 = exploreWeb(request2, cookies)
-
-    use write = new File(path_filename).OpenWritableStream()
-    response2.Body.CopyTo(write)
-
-    write.Close()
-    response2.Close()
+    webBodyToFile(url2, cookies, path_filename)
 ;
 
 method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String)
@@ -279,6 +283,8 @@ method main(username: String, password: String, target: String, version: String)
             downloadPlatform(cookies, version, "setuptc64", "tar.gz")
         when "thinclient-win32"
             downloadPlatform(cookies, version, "setuptc", "tar.gz")
+        when "thinclient-osx"
+            downloadPlatform(cookies, version, "thin.osx", "dmg")
         when "postgres-win"
             downloadPostgres(cookies, version, "x64", "zip")
         when "postgres-deb"
