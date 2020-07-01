@@ -290,7 +290,7 @@ method download(cookies: Map, nick: String, ver: String, path_folder: String, pa
     webBodyToFile(url2, cookies, path_filename)
 ;
 
-method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String)
+method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String): String
     
     val path_folder = "Platform"
     val path_version = version.Replace(".", "_")
@@ -299,9 +299,11 @@ method downloadPlatform(cookies: Map, version: String, prefix: String, extension
     val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
 
     download(cookies, nick, version, path_folder, path_version, path_filename)
+    
+    return path_filename
 ;
 
-method downloadPostgres(cookies: Map, version: String, postfix: String, extension: String)
+method downloadPostgres(cookies: Map, version: String, postfix: String, extension: String): String
 
     val prefix = "postgresql"
 
@@ -312,9 +314,11 @@ method downloadPostgres(cookies: Map, version: String, postfix: String, extensio
     val nick = path_folder
 
     download(cookies, nick, version, path_folder, path_version, path_filename)
+    
+    return path_filename
 ;
 
-method downloadConfiguration(cookies: Map, version: String, target: String, isUpdate: Boolean)
+method downloadConfiguration(cookies: Map, version: String, target: String, isUpdate: Boolean): String
 
     val postfix = isUpdate ? "updsetup" : "setup1c" 
     
@@ -325,41 +329,49 @@ method downloadConfiguration(cookies: Map, version: String, target: String, isUp
     val nick = path_folder
 
     download(cookies, nick, version, path_folder, path_version, path_filename)
+    
+    return path_filename
 ;
 
-method main(username: String, password: String, target: String, version: String)
+method main(username: String, password: String, target: String, version: String): String
 
     val cookies = auth(username, password)
     
+    var path_filename: String
     if target.StartsWith("config-") or target.StartsWith("update-")
-        downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
+        path_filename = downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
+        
     else
 
         case target
         when "platform-win64"
-            downloadPlatform(cookies, version, "windows64full", "rar")
+            path_filename = downloadPlatform(cookies, version, "windows64full", "rar")
         when "platform-win32"
-            downloadPlatform(cookies, version, "windows", "rar")
+            path_filename = downloadPlatform(cookies, version, "windows", "rar")
         when "platform-osx"
-            downloadPlatform(cookies, version, "clientosx", "dmg")
+            path_filename = downloadPlatform(cookies, version, "clientosx", "dmg")
+        when "platform-deb64"
+            path_filename = downloadPlatform(cookies, version, "client", "tar.gz")
         when "server-win64"
-            downloadPlatform(cookies, version, "windows64", "rar")
+            path_filename = downloadPlatform(cookies, version, "windows64", "rar")
         when "server-deb64"
-            downloadPlatform(cookies, version, "deb64", "tar.gz")
+            path_filename = downloadPlatform(cookies, version, "deb64", "tar.gz")
         when "thinclient-win64"
-            downloadPlatform(cookies, version, "setuptc64", "tar.gz")
+            path_filename = downloadPlatform(cookies, version, "setuptc64", "tar.gz")
         when "thinclient-win32"
-            downloadPlatform(cookies, version, "setuptc", "tar.gz")
+            path_filename = downloadPlatform(cookies, version, "setuptc", "tar.gz")
         when "thinclient-osx"
-            downloadPlatform(cookies, version, "thin.osx", "dmg")
+            path_filename = downloadPlatform(cookies, version, "thin.osx", "dmg")
         when "postgres-win"
-            downloadPostgres(cookies, version, "x64", "zip")
+            path_filename = downloadPostgres(cookies, version, "x64", "zip")
         when "postgres-deb"
-            downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
+            path_filename = downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
         else
             throw new ExceptionDL1C("Bad target")
         ;
     ;
+    
+    return path_filename
 ;
 
 method Script(username: String, password: String, target: String, version: String): Number
