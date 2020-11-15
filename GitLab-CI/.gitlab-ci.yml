@@ -1,0 +1,53 @@
+stages:
+- build
+- test 
+- release
+
+variables:
+    RING_OPTS: '-Dfile.encoding=UTF-8 -Dosgi.nl=ru'
+    SCRIPTS: '${CI_BUILD_DIR}/../scripts/'
+    WP: '${CI_PROJECT_DIR}/temp/wp'
+
+build:
+    stage: build
+    tags:
+        - edt
+    only:
+        - schedules
+    script:
+        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl build
+    artifacts:
+        name: build
+        paths:
+            - build/
+    cache:
+        key: ${CI_COMMIT_REF_SLUG}
+        paths:
+            - $env:WP
+
+test:
+    stage: test
+    tags:
+        - edt
+    only:
+        - schedules
+    dependencies:
+        - build
+    script:
+        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl test
+    artifacts:
+        reports:
+            junit: test/junit/
+        paths:
+            - test/
+
+release:
+    stage: release
+    tags:
+        - edt
+    only:
+        - schedules
+    dependencies:
+        - test
+    script:
+        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl release
