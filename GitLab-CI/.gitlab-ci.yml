@@ -4,8 +4,6 @@ stages:
 - release
 
 variables:
-    RING_OPTS: '-Dfile.encoding=UTF-8 -Dosgi.nl=ru'
-    SCRIPTS: '${CI_BUILD_DIR}/../scripts/'
     WP: '${CI_PROJECT_DIR}/temp/wp'
 
 build:
@@ -20,12 +18,13 @@ build:
         name: build
         paths:
             - build/
+            - ci/
     cache:
         key: ${CI_COMMIT_REF_SLUG}
         paths:
             - $env:WP
 
-test:
+testCore:
     stage: test
     tags:
         - edt
@@ -34,12 +33,32 @@ test:
     dependencies:
         - build
     script:
-        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl test
+        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl testCore
     artifacts:
+        name: test
         reports:
             junit: test/junit/
         paths:
             - test/
+            - ci/
+
+testUI:
+    stage: test
+    tags:
+        - edt
+    only:
+        - schedules
+    dependencies:
+        - build
+    script:
+        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl testUI
+    artifacts:
+        name: test
+        reports:
+            junit: test/junit/
+        paths:
+            - test/
+            - ci/
 
 release:
     stage: release
@@ -48,6 +67,7 @@ release:
     only:
         - schedules
     dependencies:
-        - test
+        - testCore
+        - testUI
     script:
         - executor_j11 -s $env:SCRIPTS/1cicd.sbsl release
