@@ -22,298 +22,276 @@
 // SOFTWARE.
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const URL_RELEASE  ="https://releases.1c.ru"
-const URL_LOGIN    ="https://login.1c.ru"
-const URL_DOWNLOAD ="%URL_RELEASE/version_file"
+const URL_RELEASE = "https://releases.1c.ru"
+const URL_LOGIN = "https://login.1c.ru"
+const URL_DOWNLOAD = "%URL_RELEASE/version_file"
 
-exception ExceptionDL1C;
+
+exception ExceptionDL1C
+;
+
 
 method updateCookies(cookies: Map, host: String, setCookie: String|Undefined)
+	if setCookie is Undefined
+	return
+	;
 
-    if setCookie is Undefined
-        return;
+	val thisCookies = new Map()
 
-    val thisCookies = new Map()
+	for cookie in setCookie.Split(";")
+		val pair = cookie.Split("=")
+		val key = pair[0].Trim()
+		if key == "Path" or key == "Expires" or pair.Size() == 1 // don't worry
+		continue
+		;
+		val value = pair.Size() == 1 ? "" : pair[1].Trim()
+		thisCookies.Insert(key, value)
+	;
 
-    for cookie in setCookie.Split(";")
-        val pair = cookie.Split("=")
-        val key = pair[0].Trim()
-        if key == "Path" or key == "Expires" or pair.Size() == 1 // don't worry
-            continue;
-        val value = pair.Size() == 1 ? "" : pair[1].Trim()
-        thisCookies.Insert(key, value)
-    ;
+	var realHost = thisCookies.ContainsKey("Domain") ? thisCookies.Get("Domain") : host
+	if not realHost.StartsWith(".")
+		realHost = "." + realHost
+	;
 
-    var realHost = thisCookies.ContainsKey("Domain") ? thisCookies.Get("Domain") : host
-    if not realHost.StartsWith(".")
-        realHost = "." + realHost
-    ;
+	val hostCookies = cookies.ContainsKey(realHost) ? cookies.Get(realHost) : new Map()
+	if not cookies.ContainsKey(realHost)
+		cookies.Insert(realHost, hostCookies)
+	;
 
-    val hostCookies = cookies.ContainsKey(realHost) ? cookies.Get(realHost) : new Map()
-    if not cookies.ContainsKey(realHost)
-        cookies.Insert(realHost, hostCookies)
-    ;
-
-    for item in thisCookies
-        if item.Key == "Domain"
-            continue;
-        hostCookies.Insert(item.Key, item.Value)
-    ;
-
+	for item in thisCookies
+		if item.Key == "Domain"
+		continue
+		;
+		hostCookies.Insert(item.Key, item.Value)
+	;
 ;
 
 method getCookie(cookies: Map, host: String): String
-    
-    var result = ""
+	var result = ""
 
-    val realHost = "." + host
+	val realHost = "." + host
 
-    for hostItem in cookies
-        if not realHost.EndsWith(hostItem.Key)
-            continue;
-        
-        for cookie in hostItem.Value
-            result = result + "; " + cookie.Key + (cookie.Value.IsEmpty() ? "" : "=" + cookie.Value)
-        ;
-    ;
+	for hostItem in cookies
+		if not realHost.EndsWith(hostItem.Key)
+		continue
+		;
 
-    return result.IsEmpty() ? result : result.Substring(2)
+		for cookie in hostItem.Value
+			result = result + "; " + cookie.Key + (cookie.Value.IsEmpty() ? "" : "=" + cookie.Value)
+		;
+	;
+
+	return result.IsEmpty() ? result : result.Substring(2)
 ;
 
 method getHost(url: String): String
+	var result = ""
 
-    var result = ""
+	if url.StartsWith("http://")
+		result = url.Substring("http://".Length())
+	else if url.StartsWith("https://")
+		result = url.Substring("https://".Length())
+	else
+		throw new ExceptionDL1C("Bad URL: %url")
+	;
 
-    if url.StartsWith("http://")
-        result = url.Substring("http://".Length())
-    else if url.StartsWith("https://")
-        result = url.Substring("https://".Length())
-    else
-        throw new ExceptionDL1C("Bad URL: %url")
-    ;
+	if result.Contains("/")
+		result = result.SubstringFromBegin(result.Find("/"))
+	;
 
-    if result.Contains("/")
-        result = result.SubstringFromBegin(result.Find("/"))
-    ;
-
-    return result
+	return result
 ;
 
 method baseUrl(url: String): String
+	var result = ""
 
-    var result = ""
+	if url.StartsWith("http://")
+		result = "http://"
+	else if url.StartsWith("https://")
+		result = "https://"
+	else
+		throw new ExceptionDL1C("Bad URL: %url")
+	;
 
-    if url.StartsWith("http://")
-        result = "http://"
-    else if url.StartsWith("https://")
-        result = "https://"
-    else
-        throw new ExceptionDL1C("Bad URL: %url")
-    ;
-
-    return result + getHost(url)
+	return result + getHost(url)
 ;
 
 method extract(text: String, startPattern: String, endPattern: String): String
-    val start = text.Find(startPattern)
-    val end = text.Find(endPattern, start + startPattern.Length())
-    return text.Substring(start + startPattern.Length(), end)
+	val start = text.Find(startPattern)
+	val end = text.Find(endPattern, start + startPattern.Length())
+	return text.Substring(start + startPattern.Length(), end)
 ;
 
 method exploreWeb(request: HttpRequest, cookies: Map): HttpResponse
+	val requests = [request]
+	val responses = [request.Execute()]
+	updateCookies(cookies, getHost(request.AbsoluteUrl), responses.Last().Headers.GetFirst("Set-Cookie"))
 
-    val requests = [request]
-    val responses = [request.Execute()]
-    updateCookies(cookies, getHost(request.AbsoluteUrl), responses.Last().Headers.GetFirst("Set-Cookie"))
-    
-    while responses.Last().StatusCode == 302
-        var location = responses.Last().Headers.GetFirst("Location") as String
-        if location.StartsWith("/")
-            location = baseUrl(requests.Last().AbsoluteUrl) + location
-        ;
-        requests.Add(
-            HttpClient.GetRequest(location)
-                .SetCookies(getCookie(cookies, getHost(location)))
-                .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
-        )
-        responses.Add(
-            requests.Last()
-                .Execute()
-        )
-        updateCookies(cookies, getHost(location), responses.Last().Headers.GetFirst("Set-Cookie"))
-    ;
+	while responses.Last().StatusCode == 301 or responses.Last().StatusCode == 302
+		var location = responses.Last().Headers.GetFirst("Location") as String
+		if location.StartsWith("/")
+			location = baseUrl(requests.Last().AbsoluteUrl) + location
+		;
+		// https://github.com/klimenko-1c/dl-1c/issues/1
+		requests.Add(HttpClient.GetRequest(location).SetCookies(getCookie(cookies, getHost(location))).SetMaxRedirect(0))
 
-    for i = 0 to responses.Bound() - 1
-        responses[i].Close()
-    ;
+		responses.Add(requests.Last().Execute())
+		updateCookies(cookies, getHost(location), responses.Last().Headers.GetFirst("Set-Cookie"))
+	;
 
-    return responses.Last()
+	for i = 0 to responses.Bound() - 1
+		responses[i].Close()
+	;
+
+	return responses.Last()
 ;
 
 method auth(username: String, password: String): Map
+	val cookies = new Map()
+	use response1 = HttpClient.GetRequest(URL_RELEASE).Execute()
+	updateCookies(cookies, getHost(URL_RELEASE), response1.Headers.GetFirst("Set-Cookie"))
+	val src = response1.Body.ReadAsText()
+	response1.Close()
 
-    val cookies = new Map()
-    use response1 = HttpClient.GetRequest(URL_RELEASE).Execute()
-    updateCookies(cookies, getHost(URL_RELEASE), response1.Headers.GetFirst("Set-Cookie")) 
-    val src = response1.Body.ReadAsText()
-    response1.Close()
+	val action = extract(src, "form method=\"post\" id=\"loginForm\" action=\"", "\"")
+	val execution = extract(src, "input type=\"hidden\" name=\"execution\" value=\"", "\"")
 
-    val action = extract(src, "form method=\"post\" id=\"loginForm\" action=\"", "\"")
-    val execution =  extract(src, "input type=\"hidden\" name=\"execution\" value=\"", "\"")
+	val body = "inviteCode=" + "&" + "inviteType=" + "&" + "username=%username" + "&" + "password=%password" + "&" + "rememberMe=on"
+		+ "&" + "execution=" + execution.Replace("=", "\%3D") + "&" + "_eventId=submit" + "&" + "geolocation=" + "&"
+		+ "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
 
-    val body =  "inviteCode="
-        + "&" + "inviteType="
-        + "&" + "username=%username"
-        + "&" + "password=%password"
-        + "&" + "rememberMe=on"
-        + "&" + "execution=" + execution.Replace("=", "\%3D") 
-        + "&" + "_eventId=submit"
-        + "&" + "geolocation="
-        + "&" + "submit=\%D0\%92\%D0\%BE\%D0\%B9\%D1\%82\%D0\%B8"
+	// https://github.com/klimenko-1c/dl-1c/issues/1
+	val request = HttpClient.PostRequest(URL_LOGIN + action).SetContentType("application/x-www-form-urlencoded")
+		.SetCookies(getCookie(cookies, getHost(URL_LOGIN))).SetBody(body).SetMaxRedirect(0)
 
-    val request = HttpClient.PostRequest(URL_LOGIN + action)
-        .SetContentType("application/x-www-form-urlencoded")
-        .SetCookies(getCookie(cookies, getHost(URL_LOGIN)))
-        .SetBody(body)
-        .SetMaxRedirect(0) // https://github.com/klimenko-1c/dl-1c/issues/1
+	exploreWeb(request, cookies).Close()
 
-    exploreWeb(request, cookies).Close()            
-    
-    if not cookies.Get("." + getHost(URL_LOGIN)).ContainsKey("TGC")
-       throw new ExceptionDL1C("Auth failed")
-    ;
+	if not cookies.Get("." + getHost(URL_LOGIN)).ContainsKey("TGC")
+		throw new ExceptionDL1C("Auth failed")
+	;
 
-    return cookies
+	return cookies
 ;
 
 method webBodyAsText(url: String, cookies: Map): String
-    val request = HttpClient.GetRequest(url)
-        .SetCookies(getCookie(cookies, getHost(url)))
-        .SetMaxRedirect(0)
-    
-    use response = exploreWeb(request, cookies)
-    
-    return response.Body.ReadAsText()
+	// https://github.com/klimenko-1c/dl-1c/issues/1
+	val request = HttpClient.GetRequest(url).SetCookies(getCookie(cookies, getHost(url))).SetMaxRedirect(0)
+
+	use response = exploreWeb(request, cookies)
+
+	return response.Body.ReadAsText()
 ;
 
 method webBodyToFile(url: String, cookies: Map, filename: String)
-    val request = HttpClient.GetRequest(url)
-        .SetCookies(getCookie(cookies, getHost(url)))
-        .SetMaxRedirect(0)
-    
-    use response = exploreWeb(request, cookies)
-    
-    use write = new File(filename).OpenWritableStream()
-    response.Body.CopyTo(write)
+	// https://github.com/klimenko-1c/dl-1c/issues/1
+	val request = HttpClient.GetRequest(url).SetCookies(getCookie(cookies, getHost(url))).SetMaxRedirect(0)
+
+	use response = exploreWeb(request, cookies)
+
+	use write = new File(filename).OpenWritableStream()
+	response.Body.CopyTo(write)
 ;
 
-method download(cookies: Map, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String)
+method download(cookies: Map, nick: String, ver: String, path_folder: String, path_version: String, path_filename: String): String
+	// https://github.com/klimenko-1c/dl-1c/issues/2
+	val url1 = "%URL_DOWNLOAD?nick=%nick&ver=%ver&path=%path_folder\%5C%path_version\%5C%path_filename"
 
-    val url1 = URL_DOWNLOAD 
-        + "?" + "nick=" + nick
-        + "&" + "ver="  + ver
-        + "&" + "path=" + path_folder + "\%5C" + path_version + "\%5C" + path_filename  // https://github.com/klimenko-1c/dl-1c/issues/2 
+	val src = webBodyAsText(url1, cookies)
 
-    val src = webBodyAsText(url1, cookies)
+	val end = src.Find(">Скачать дистрибутив<")
+	val start = src.FindFromEnd("\"", , end - 1)
+	val url2 = src.Substring(start + 1, end - 1)
 
-    val end = src.Find(">Скачать дистрибутив<")
-    val start = src.FindFromEnd("\"",, end - 1)
-    val url2 = src.Substring(start + 1, end - 1)
+	val tmpDir = Files.СоздатьВременныйКаталог(, Ложь)
+	webBodyToFile(url2, cookies, "%tmpDir/%path_filename")
 
-    webBodyToFile(url2, cookies, path_filename)
+	return "%tmpDir/%path_filename"
 ;
 
 method downloadPlatform(cookies: Map, version: String, prefix: String, extension: String): String
-    
-    val path_folder = "Platform"
-    val path_version = version.Replace(".", "_")
-    val path_filename = prefix + "_" + path_version + "." + extension
+	val path_folder = "Platform"
+	val path_version = version.Replace(".", "_")
+	val path_filename = "%{prefix}_%path_version.%extension"
 
-    val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
+	val nick = path_folder + version.Split(".")[0] + version.Split(".")[1]
 
-    download(cookies, nick, version, path_folder, path_version, path_filename)
-    
-    return path_filename
+	return download(cookies, nick, version, path_folder, path_version, path_filename)
 ;
 
 method downloadPostgres(cookies: Map, version: String, postfix: String, extension: String): String
+	val prefix = "postgresql"
 
-    val prefix = "postgresql"
+	val path_folder = "AddCompPostgre"
+	val path_version = version.Replace(".", "_").Replace("-", "_")
+	val path_filename = prefix + "_" + version.Replace("-", "_") + "_" + postfix + "." + extension
 
-    val path_folder = "AddCompPostgre"
-    val path_version = version.Replace(".", "_").Replace("-", "_")
-    val path_filename = prefix + "_" + version.Replace("-", "_") + "_" + postfix + "." + extension
+	val nick = path_folder
 
-    val nick = path_folder
+	download(cookies, nick, version, path_folder, path_version, path_filename)
 
-    download(cookies, nick, version, path_folder, path_version, path_filename)
-    
-    return path_filename
+	return path_filename
 ;
 
 method downloadConfiguration(cookies: Map, version: String, target: String, isUpdate: Boolean): String
+	val postfix = isUpdate ? "updsetup" : "setup1c"
 
-    val postfix = isUpdate ? "updsetup" : "setup1c" 
-    
-    val path_folder = target
-    val path_version = version.Replace(".", "_")
-    val path_filename = path_folder + "_" + path_version + "_" + postfix + ".exe"
+	val path_folder = target
+	val path_version = version.Replace(".", "_")
+	val path_filename = path_folder + "_" + path_version + "_" + postfix + ".exe"
 
-    val nick = path_folder
+	val nick = path_folder
 
-    download(cookies, nick, version, path_folder, path_version, path_filename)
-    
-    return path_filename
+	download(cookies, nick, version, path_folder, path_version, path_filename)
+
+	return path_filename
 ;
 
 method main(username: String, password: String, target: String, version: String): String
+	val cookies = auth(username, password)
 
-    val cookies = auth(username, password)
-    
-    var path_filename: String
-    if target.StartsWith("config-") or target.StartsWith("update-")
-        path_filename = downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
-        
-    else
+	var path_filename: String
+	if target.StartsWith("config-") or target.StartsWith("update-")
+		path_filename = downloadConfiguration(cookies, version, target.Substring(7), target.StartsWith("update-"))
 
+	else
+		
         case target
-        when "platform-win64"
-            path_filename = downloadPlatform(cookies, version, "windows64full", "rar")
-        when "platform-win32"
-            path_filename = downloadPlatform(cookies, version, "windows", "rar")
-        when "platform-osx"
-            path_filename = downloadPlatform(cookies, version, "clientosx", "dmg")
-        when "platform-deb64"
-            path_filename = downloadPlatform(cookies, version, "client", "tar.gz")
-        when "server-win64"
-            path_filename = downloadPlatform(cookies, version, "windows64", "rar")
-        when "server-deb64"
-            path_filename = downloadPlatform(cookies, version, "deb64", "tar.gz")
-        when "thinclient-win64"
-            path_filename = downloadPlatform(cookies, version, "setuptc64", "tar.gz")
-        when "thinclient-win32"
-            path_filename = downloadPlatform(cookies, version, "setuptc", "tar.gz")
-        when "thinclient-osx"
-            path_filename = downloadPlatform(cookies, version, "thin.osx", "dmg")
-        when "postgres-win"
-            path_filename = downloadPostgres(cookies, version, "x64", "zip")
-        when "postgres-deb"
-            path_filename = downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
-        else
-            throw new ExceptionDL1C("Bad target")
-        ;
-    ;
-    
-    return path_filename
+		when "platform-win64"
+			path_filename = downloadPlatform(cookies, version, "windows64full", "rar")
+		when "platform-win32"
+			path_filename = downloadPlatform(cookies, version, "windows", "rar")
+		when "platform-osx"
+			path_filename = downloadPlatform(cookies, version, "clientosx", "dmg")
+		when "platform-deb64"
+			path_filename = downloadPlatform(cookies, version, "client", "tar.gz")
+		when "server-win64"
+			path_filename = downloadPlatform(cookies, version, "windows64", "rar")
+		when "server-deb64"
+			path_filename = downloadPlatform(cookies, version, "deb64", "tar.gz")
+		when "thinclient-win64"
+			path_filename = downloadPlatform(cookies, version, "setuptc64", "tar.gz")
+		when "thinclient-win32"
+			path_filename = downloadPlatform(cookies, version, "setuptc", "tar.gz")
+		when "thinclient-osx"
+			path_filename = downloadPlatform(cookies, version, "thin.osx", "dmg")
+		when "postgres-win"
+			path_filename = downloadPostgres(cookies, version, "x64", "zip")
+		when "postgres-deb"
+			path_filename = downloadPostgres(cookies, version, "amd64_deb", "tar.bz2")
+		else
+			throw new ExceptionDL1C("Bad target")
+		;
+	;
+
+	return path_filename
 ;
 
 method Script(username: String, password: String, target: String, version: String): Number
-
-    try 
-        main(username, password, target, version)
-        return 0
-    catch exception: any
-        Console.WriteError(exception.Info())
-        return 1
-    ;
+	try
+		main(username, password, target, version)
+		return 0
+	catch exception: any
+		Console.WriteError(exception.Info())
+		return 1
+	;
 ;
