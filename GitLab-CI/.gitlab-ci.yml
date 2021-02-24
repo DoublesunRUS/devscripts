@@ -1,6 +1,10 @@
+before_script:
+  - CHCP 65001
+
 stages:
 - build
-- test 
+- test
+- report 
 - release
 
 variables:
@@ -13,7 +17,7 @@ build:
     only:
         - schedules
     script:
-        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl build
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl build
     artifacts:
         name: build
         paths:
@@ -33,11 +37,11 @@ testCore:
     dependencies:
         - build
     script:
-        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl testCore
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl testCore
     artifacts:
         name: test
         reports:
-            junit: test/junit/
+            junit: test/junit/junit.xml
         paths:
             - test/
             - ci/
@@ -51,14 +55,30 @@ testUI:
     dependencies:
         - build
     script:
-        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl testUI
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl testUI
     artifacts:
         name: test
         reports:
-            junit: test/junit/
+            junit: test/junit/junit.xml
         paths:
             - test/
             - ci/
+            - public/
+
+pages:
+    stage: report
+    tags:
+        - edt
+    only:
+        - schedules
+    dependencies:
+        - testUI
+    script:
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl pages
+    artifacts:
+        paths:
+            - ci/
+            - public/
 
 release:
     stage: release
@@ -69,5 +89,6 @@ release:
     dependencies:
         - testCore
         - testUI
+        - pages
     script:
-        - executor_j11 -s $env:SCRIPTS/1cicd.sbsl release
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl release
