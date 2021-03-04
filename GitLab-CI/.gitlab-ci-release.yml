@@ -41,7 +41,7 @@ testCore:
     artifacts:
         name: test
         reports:
-            junit: test/junit/junit.xml
+            junit: test/junit/*.xml
         paths:
             - test/
             - ci/
@@ -59,11 +59,14 @@ testUI:
     artifacts:
         name: test
         reports:
-            junit: test/junit/junit.xml
+            junit: test/junit/*.xml
         paths:
             - test/
             - ci/
             - public/
+    environment:
+        name: allure
+        url: https://${CI_SERVER_HOST}/${CI_PROJECT_PATH}/-/jobs/${CI_JOB_ID}/artifacts/file/public/index.html
 
 pages:
     stage: report
