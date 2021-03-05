@@ -2213,6 +2213,13 @@
 	когда "Неизвестное имя типа {0}"
 		type = SonarqubeType.BUG
 		severity = SonarqubeSeverity.MINOR
+	когда "Тип {0} неопределен"
+		если описаниеОшибки.описание.НачинаетсяС("Тип 'РеквизитФормы' неопределен")
+			type = SonarqubeType.CODE_SMELL
+		иначе
+			type = SonarqubeType.BUG
+		;
+		severity = SonarqubeSeverity.MINOR
 	;
 
 	знч issue = новый SonarqubeIssue(engineId, ruleId, primaryLocation, type, severity)
