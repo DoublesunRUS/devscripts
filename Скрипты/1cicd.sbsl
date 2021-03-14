@@ -1225,7 +1225,7 @@
 		имяФайла = "%путьСборки/%{репозиторий.Проект}.cfe"
 	;
 
-	знч имяРепозиторияРелизов = "%CI_PROJECT_NAMESPACE\%2Freleases"
+	знч имяРепозиторияРелизов = "%CI_PROJECT_NAMESPACE/releases".Заменить("/", "\%2F")
 
 	Консоль.Записать(
 		"JobArtifacts_DownloadFile: %имяФайла build %CI_COMMIT_REF_SLUG %имяРепозиторияРелизов %CI_SERVER_HOST")
