@@ -12,7 +12,7 @@ variables:
 buildMR:
     stage: build
     tags:
-        - edt
+        - 1c-edt
     only:
         - merge_requests
     script:
@@ -30,7 +30,7 @@ buildMR:
 testCore:
     stage: test
     tags:
-        - edt
+        - 1c-edt
     only:
         - merge_requests
     dependencies:
@@ -48,7 +48,7 @@ testCore:
 testUI:
     stage: test
     tags:
-        - edt
+        - 1c-ui
     only:
         - merge_requests
     dependencies:
@@ -62,15 +62,11 @@ testUI:
         paths:
             - test/
             - ci/
-            - public/
-    environment:
-        name: allure
-        url: https://${CI_SERVER_HOST}/${CI_PROJECT_PATH}/-/jobs/${CI_JOB_ID}/artifacts/file/public/index.html
 
 pages:
     stage: report
     tags:
-        - edt
+        - 1c-edt
     only:
         - merge_requests
     dependencies:
@@ -81,3 +77,6 @@ pages:
         paths:
             - ci/
             - public/
+    environment:
+        name: allure
+        url: https://${CI_SERVER_HOST}/${CI_PROJECT_PATH}/-/jobs/${CI_JOB_ID}/artifacts/file/public/index.html
