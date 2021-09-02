@@ -10,14 +10,46 @@ stages:
 variables:
     WP: '${CI_PROJECT_DIR}/temp/wp'
 
-build:
+buildMaster:
+    stage: build
+    tags:
+        - 1c-edt
+    only:
+        - master
+    script:
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl buildMaster
+    artifacts:
+        name: build
+        paths:
+            - build/
+            - ci/
+    cache:
+        key: ${CI_COMMIT_REF_SLUG}
+        paths:
+            - $env:WP
+
+buildMergeRequest:
+    stage: build
+    tags:
+        - 1c-edt
+    only:
+        - merge_requests
+    script:
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl buildMergeRequest
+    artifacts:
+        name: build
+        paths:
+            - build/
+            - ci/
+
+buildRelease:
     stage: build
     tags:
         - 1c-edt
     only:
         - schedules
     script:
-        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl build
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl buildRelease
     artifacts:
         name: build
         paths:
@@ -33,9 +65,13 @@ testCore:
     tags:
         - 1c-edt
     only:
+        - master
         - schedules
+        - merge_requests
     dependencies:
-        - build
+        - buildMaster
+        - buildMergeRequest
+        - buildRelease
     script:
         - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl testCore
     artifacts:
@@ -52,8 +88,10 @@ testUI:
         - 1c-ui
     only:
         - schedules
+        - merge_requests
     dependencies:
-        - build
+        - buildRelease
+        - buildMergeRequest
     script:
         - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl testUI
     artifacts:
@@ -64,12 +102,31 @@ testUI:
             - test/
             - ci/
 
+code_quality:
+    stage: report
+    tags:
+        - 1c-edt
+    only:
+        - master
+        - merge_requests
+    dependencies:
+        - testCore
+    script:
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl qualityCode
+    artifacts:
+        reports:
+            codequality: test/codequality/*.json
+        paths:
+            - test/
+            - ci/
+
 pages:
     stage: report
     tags:
         - 1c-edt
     only:
         - schedules
+        - merge_requests
     dependencies:
         - testUI
     script:
