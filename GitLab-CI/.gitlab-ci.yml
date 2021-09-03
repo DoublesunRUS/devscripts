@@ -126,7 +126,6 @@ sonarQube:
         - 1c-edt
     only:
         - master
-        - schedules
     dependencies:
         - testCore
     script:
