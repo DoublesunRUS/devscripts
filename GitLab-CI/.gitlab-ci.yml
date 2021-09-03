@@ -120,6 +120,22 @@ code_quality:
             - test/
             - ci/
 
+sonarQube:
+    stage: report
+    tags:
+        - 1c-edt
+    only:
+        - master
+        - schedules
+    dependencies:
+        - testCore
+    script:
+        - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl sonarQube
+    artifacts:
+        paths:
+            - test/
+            - ci/
+
 pages:
     stage: report
     tags:
