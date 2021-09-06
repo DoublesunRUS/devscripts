@@ -7,9 +7,6 @@ stages:
 - report 
 - release
 
-variables:
-    WP: '${CI_PROJECT_DIR}/temp/wp'
-
 buildMaster:
     stage: build
     tags:
@@ -23,10 +20,6 @@ buildMaster:
         paths:
             - build/
             - ci/
-    cache:
-        key: ${CI_COMMIT_REF_SLUG}
-        paths:
-            - $env:WP
 
 buildMergeRequest:
     stage: build
@@ -55,10 +48,6 @@ buildRelease:
         paths:
             - build/
             - ci/
-    cache:
-        key: ${CI_COMMIT_REF_SLUG}
-        paths:
-            - $env:WP
 
 testCore:
     stage: test
