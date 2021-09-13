@@ -13,6 +13,8 @@ buildMaster:
         - 1c-edt
     only:
         - master
+    except:
+        - schedules
     script:
         - executor_j11 -s $env:CI_SCRIPTS/1cicd.sbsl buildMaster
     artifacts:
@@ -98,6 +100,8 @@ code_quality:
     only:
         - master
         - merge_requests
+    except:
+        - schedules
     dependencies:
         - testCore
     script:
@@ -115,6 +119,8 @@ sonarQube:
         - 1c-edt
     only:
         - master
+    except:
+        - schedules
     dependencies:
         - testCore
     script:
