@@ -1998,8 +1998,8 @@
 	знч имяРепозиторияРелизов = "%CI_PROJECT_NAMESPACE/releases".Заменить("/", "\%2F")
 
 	Консоль.Записать(
-		"JobArtifacts_DownloadFile: %имяФайла build %CI_COMMIT_REF_SLUG %имяРепозиторияРелизов %CI_SERVER_HOST")
-	возврат JobArtifacts_DownloadFile(имяФайла, "build", CI_COMMIT_REF_SLUG, имяРепозиторияРелизов, RELEASES_TOKEN,
+		"JobArtifacts_DownloadFile: %имяФайла buildRelease %CI_COMMIT_REF_SLUG %имяРепозиторияРелизов %CI_SERVER_HOST")
+	возврат JobArtifacts_DownloadFile(имяФайла, "buildRelease", CI_COMMIT_REF_SLUG, имяРепозиторияРелизов, RELEASES_TOKEN,
 		CI_SERVER_HOST)
 ;
 
